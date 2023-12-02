@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright Istio Authors
+# Copyright 2017 Istio Authors
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -15,8 +15,6 @@
 #   limitations under the License.
 
 
-from __future__ import print_function
-from flask_bootstrap import Bootstrap
 from flask import Flask, request, session, render_template, redirect, url_for
 from flask import _request_ctx_stack as stack
 from jaeger_client import Tracer, ConstSampler
@@ -25,16 +23,16 @@ from jaeger_client.codecs import B3Codec
 from opentracing.ext import tags
 from opentracing.propagation import Format
 from opentracing_instrumentation.request_context import get_current_span, span_in_context
-from prometheus_client import Counter, generate_latest
+from authlib.flask.client import OAuth
+from six.moves.urllib.parse import urlencode
+
 import simplejson as json
 import requests
 import sys
 from json2html import *
 import logging
+import requests
 import os
-import asyncio
-from authlib.flask.client import OAuth
-from six.moves.urllib.parse import urlencode
 
 # These two lines enable debugging at httplib level (requests->urllib3->http.client)
 # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
@@ -47,7 +45,7 @@ except ImportError:
 http_client.HTTPConnection.debuglevel = 1
 
 app = Flask(__name__)
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+logging.basicConfig(filename='microservice.log',filemode='w',level=logging.DEBUG)
 requests_log = logging.getLogger("requests.packages.urllib3")
 requests_log.setLevel(logging.DEBUG)
 requests_log.propagate = True
@@ -57,6 +55,7 @@ app.logger.setLevel(logging.DEBUG)
 # Set the secret key to some random bytes. Keep this really secret!
 app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
+from flask_bootstrap import Bootstrap
 Bootstrap(app)
 
 # AUTH0_CALLBACK_URL = "http://{YOUR-CLUSTER-PUBLIC-IP}/callback"
@@ -66,7 +65,7 @@ AUTH0_CALLBACK_URL = "http://istio-ingressgateway-istio-system.apps.rosa.rosa-wm
 AUTH0_CLIENT_ID = "book-ui"
 
 # AUTH0_CLIENT_SECRET = "{YOUR-APPLICATION-CLIENT-SECRET}"
-AUTH0_CLIENT_SECRET = ""
+AUTH0_CLIENT_SECRET = "b35e1fab-0675-4f83-9e96-61c1a31ac3f9"
 
 # AUTH0_DOMAIN = "{YOUR-AUTH0-DOMAIN}"
 AUTH0_DOMAIN = "keycloak-keycloak.apps.rosa.rosa-wm72j.46i9.p3.openshiftapps.com"
@@ -90,47 +89,37 @@ auth0 = oauth.register(
     },
 )
 
-servicesDomain = "" if (os.environ.get("SERVICES_DOMAIN") is None) else "." + os.environ.get("SERVICES_DOMAIN")
-detailsHostname = "details" if (os.environ.get("DETAILS_HOSTNAME") is None) else os.environ.get("DETAILS_HOSTNAME")
-detailsPort = "9080" if (os.environ.get("DETAILS_SERVICE_PORT") is None) else os.environ.get("DETAILS_SERVICE_PORT")
-ratingsHostname = "ratings" if (os.environ.get("RATINGS_HOSTNAME") is None) else os.environ.get("RATINGS_HOSTNAME")
-ratingsPort = "9080" if (os.environ.get("RATINGS_SERVICE_PORT") is None) else os.environ.get("RATINGS_SERVICE_PORT")
-reviewsHostname = "reviews" if (os.environ.get("REVIEWS_HOSTNAME") is None) else os.environ.get("REVIEWS_HOSTNAME")
-reviewsPort = "9080" if (os.environ.get("REVIEWS_SERVICE_PORT") is None) else os.environ.get("REVIEWS_SERVICE_PORT")
-
-flood_factor = 0 if (os.environ.get("FLOOD_FACTOR") is None) else int(os.environ.get("FLOOD_FACTOR"))
+servicesDomain = "" if (os.environ.get("SERVICES_DOMAIN") == None) else "." + os.environ.get("SERVICES_DOMAIN")
 
 details = {
-    "name": "http://{0}{1}:{2}".format(detailsHostname, servicesDomain, detailsPort),
-    "endpoint": "details",
-    "children": []
+    "name" : "http://details{0}:9080".format(servicesDomain),
+    "endpoint" : "details",
+    "children" : []
 }
 
 ratings = {
-    "name": "http://{0}{1}:{2}".format(ratingsHostname, servicesDomain, ratingsPort),
-    "endpoint": "ratings",
-    "children": []
+    "name" : "http://ratings{0}:9080".format(servicesDomain),
+    "endpoint" : "ratings",
+    "children" : []
 }
 
 reviews = {
-    "name": "http://{0}{1}:{2}".format(reviewsHostname, servicesDomain, reviewsPort),
-    "endpoint": "reviews",
-    "children": [ratings]
+    "name" : "http://reviews{0}:9080".format(servicesDomain),
+    "endpoint" : "reviews",
+    "children" : [ratings]
 }
 
 productpage = {
-    "name": "http://{0}{1}:{2}".format(detailsHostname, servicesDomain, detailsPort),
-    "endpoint": "details",
-    "children": [details, reviews]
+    "name" : "http://details{0}:9080".format(servicesDomain),
+    "endpoint" : "details",
+    "children" : [details, reviews]
 }
 
 service_dict = {
-    "productpage": productpage,
-    "details": details,
-    "reviews": reviews,
+    "productpage" : productpage,
+    "details" : details,
+    "reviews" : reviews,
 }
-
-request_result_counter = Counter('request_result', 'Results of requests', ['destination_app', 'response_code'])
 
 # A note on distributed tracing:
 #
@@ -139,10 +128,15 @@ request_result_counter = Counter('request_result', 'Results of requests', ['dest
 # appropriate HTTP headers so that when the proxies send span information, the
 # spans can be correlated correctly into a single trace.
 #
-# To do this, an application needs to collect and propagate headers from the
-# incoming request to any outgoing requests. The choice of headers to propagate
-# is determined by the trace configuration used. See getForwardHeaders for
-# the different header options.
+# To do this, an application needs to collect and propagate the following
+# headers from the incoming request to any outgoing requests:
+#
+# x-request-id
+# x-b3-traceid
+# x-b3-spanid
+# x-b3-parentspanid
+# x-b3-sampled
+# x-b3-flags
 #
 # This example code uses OpenTracing (http://opentracing.io/) to propagate
 # the 'b3' (zipkin) headers. Using OpenTracing for this is not a requirement.
@@ -203,7 +197,7 @@ def getForwardHeaders(request):
 
     if 'access_token' in session:
         headers['Authorization'] = 'Bearer ' + session['access_token']
-            
+
     # x-b3-*** headers can be populated using the opentracing span
     span = get_current_span()
     carrier = {}
@@ -218,73 +212,13 @@ def getForwardHeaders(request):
     if 'user' in session:
         headers['end-user'] = session['user']
 
-    # Keep this in sync with the headers in details and reviews.
-    incoming_headers = [
-        # All applications should propagate x-request-id. This header is
-        # included in access log statements and is used for consistent trace
-        # sampling and log sampling decisions in Istio.
-        'x-request-id',
-
-        # Lightstep tracing header. Propagate this if you use lightstep tracing
-        # in Istio (see
-        # https://istio.io/latest/docs/tasks/observability/distributed-tracing/lightstep/)
-        # Note: this should probably be changed to use B3 or W3C TRACE_CONTEXT.
-        # Lightstep recommends using B3 or TRACE_CONTEXT and most application
-        # libraries from lightstep do not support x-ot-span-context.
-        'x-ot-span-context',
-
-        # Datadog tracing header. Propagate these headers if you use Datadog
-        # tracing.
-        'x-datadog-trace-id',
-        'x-datadog-parent-id',
-        'x-datadog-sampling-priority',
-
-        # W3C Trace Context. Compatible with OpenCensusAgent and Stackdriver Istio
-        # configurations.
-        'traceparent',
-        'tracestate',
-
-        # Cloud trace context. Compatible with OpenCensusAgent and Stackdriver Istio
-        # configurations.
-        'x-cloud-trace-context',
-
-        # Grpc binary trace context. Compatible with OpenCensusAgent nad
-        # Stackdriver Istio configurations.
-        'grpc-trace-bin',
-
-        # b3 trace headers. Compatible with Zipkin, OpenCensusAgent, and
-        # Stackdriver Istio configurations. Commented out since they are
-        # propagated by the OpenTracing tracer above.
-        # 'x-b3-traceid',
-        # 'x-b3-spanid',
-        # 'x-b3-parentspanid',
-        # 'x-b3-sampled',
-        # 'x-b3-flags',
-
-        # SkyWalking trace headers.
-        'sw8',
-
-        # Application-specific headers to forward.
-        'user-agent',
-
-        # Context and session specific headers
-        'cookie',
-        'authorization',
-        'jwt',
-    ]
-    # For Zipkin, always propagate b3 headers.
-    # For Lightstep, always propagate the x-ot-span-context header.
-    # For Datadog, propagate the corresponding datadog headers.
-    # For OpenCensusAgent and Stackdriver configurations, you can choose any
-    # set of compatible headers to propagate within your application. For
-    # example, you can propagate b3 headers or W3C trace context headers with
-    # the same result. This can also allow you to translate between context
-    # propagation mechanisms between different applications.
+    incoming_headers = ['x-request-id']
 
     for ihdr in incoming_headers:
         val = request.headers.get(ihdr)
         if val is not None:
             headers[ihdr] = val
+            #print "incoming: "+ihdr+":"+val
 
     return headers
 
@@ -305,18 +239,22 @@ def index():
 @app.route('/health')
 def health():
     return 'Product page is healthy'
-    
+
 @app.route('/login')
 def login():
     return auth0.authorize_redirect(redirect_uri=AUTH0_CALLBACK_URL, 
-                                    audience=AUTH0_AUDIENCE)
+                                    audience=AUTH0_AUDIENCE,scope="openid")
 @app.route('/callback')
 def callback():
-    response = auth0.authorize_access_token()          # 1
+    response = auth0.authorize_access_token(verify=False)          # 1
     session['access_token'] = response['access_token'] # 2
-    userinfoResponse = auth0.get('userinfo')           # 3
+    # https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/userinfo
+    # userinfoResponse = auth0.get('userinfo',verify=False)           # 3
+    userinfoResponse = auth0.get('auth/realms/bookshop/protocol/openid-connect/userinfo',verify=False)           # 3
     userinfo = userinfoResponse.json()
-    session['user'] = userinfo['nickname']             # 4
+    # session['user'] = userinfo['nickname']             # 4
+    session['user'] = userinfo['name']             # 4
+    # session['user'] = 'hardcoded-dummy'             # 4
     return redirect('/productpage')
 
 @app.route('/logout')
@@ -327,56 +265,16 @@ def logout():
     params = {'redirect_uri': url_for('front', _external=True)}
     # return redirect(auth0.api_base_url + '/v2/logout?' + urlencode(params))
     #   https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/logout
-    return redirect(auth0.api_base_url + '/realms/bookshop/protocol/openid-connect/logout?' + urlencode(params))
-
-#@app.route('/login', methods=['POST'])
-#def login():
-#    user = request.values.get('username')
-#    response = app.make_response(redirect(request.referrer))
-#    session['user'] = user
-#    return response
-
-
-#@app.route('/logout', methods=['GET'])
-#def logout():
-#    response = app.make_response(redirect(request.referrer))
-#    session.pop('user', None)
-#    return response
-
-# a helper function for asyncio.gather, does not return a value
-
-
-async def getProductReviewsIgnoreResponse(product_id, headers):
-    getProductReviews(product_id, headers)
-
-# flood reviews with unnecessary requests to demonstrate Istio rate limiting, asynchoronously
-
-
-async def floodReviewsAsynchronously(product_id, headers):
-    # the response is disregarded
-    await asyncio.gather(*(getProductReviewsIgnoreResponse(product_id, headers) for _ in range(flood_factor)))
-
-# flood reviews with unnecessary requests to demonstrate Istio rate limiting
-
-
-def floodReviews(product_id, headers):
-    loop = asyncio.new_event_loop()
-    loop.run_until_complete(floodReviewsAsynchronously(product_id, headers))
-    loop.close()
-
+    return redirect(auth0.api_base_url + '/auth/realms/bookshop/protocol/openid-connect/logout?' + urlencode(params))
 
 @app.route('/productpage')
 @trace()
 def front():
-    product_id = 0  # TODO: replace default value
+    product_id = 0 # TODO: replace default value
     headers = getForwardHeaders(request)
     user = session.get('user', '')
     product = getProduct(product_id)
     detailsStatus, details = getProductDetails(product_id, headers)
-
-    if flood_factor > 0:
-        floodReviews(product_id, headers)
-
     reviewsStatus, reviews = getProductReviews(product_id, headers)
     return render_template(
         'productpage.html',
@@ -418,10 +316,6 @@ def ratingsRoute(product_id):
     return json.dumps(ratings), status, {'Content-Type': 'application/json'}
 
 
-@app.route('/metrics')
-def metrics():
-    return generate_latest()
-
 
 # Data providers:
 def getProducts():
@@ -446,31 +340,27 @@ def getProductDetails(product_id, headers):
     try:
         url = details['name'] + "/" + details['endpoint'] + "/" + str(product_id)
         res = requests.get(url, headers=headers, timeout=3.0)
-    except BaseException:
+    except:
         res = None
     if res and res.status_code == 200:
-        request_result_counter.labels(destination_app='details', response_code=200).inc()
         return 200, res.json()
     else:
         status = res.status_code if res is not None and res.status_code else 500
-        request_result_counter.labels(destination_app='details', response_code=status).inc()
         return status, {'error': 'Sorry, product details are currently unavailable for this book.'}
 
 
 def getProductReviews(product_id, headers):
-    # Do not remove. Bug introduced explicitly for illustration in fault injection task
-    # TODO: Figure out how to achieve the same effect using Envoy retries/timeouts
+    ## Do not remove. Bug introduced explicitly for illustration in fault injection task
+    ## TODO: Figure out how to achieve the same effect using Envoy retries/timeouts
     for _ in range(2):
         try:
             url = reviews['name'] + "/" + reviews['endpoint'] + "/" + str(product_id)
             res = requests.get(url, headers=headers, timeout=3.0)
-        except BaseException:
+        except:
             res = None
         if res and res.status_code == 200:
-            request_result_counter.labels(destination_app='reviews', response_code=200).inc()
             return 200, res.json()
     status = res.status_code if res is not None and res.status_code else 500
-    request_result_counter.labels(destination_app='reviews', response_code=status).inc()
     return status, {'error': 'Sorry, product reviews are currently unavailable for this book.'}
 
 
@@ -478,20 +368,17 @@ def getProductRatings(product_id, headers):
     try:
         url = ratings['name'] + "/" + ratings['endpoint'] + "/" + str(product_id)
         res = requests.get(url, headers=headers, timeout=3.0)
-    except BaseException:
+    except:
         res = None
     if res and res.status_code == 200:
-        request_result_counter.labels(destination_app='ratings', response_code=200).inc()
         return 200, res.json()
     else:
         status = res.status_code if res is not None and res.status_code else 500
-        request_result_counter.labels(destination_app='ratings', response_code=status).inc()
         return status, {'error': 'Sorry, product ratings are currently unavailable for this book.'}
-
 
 class Writer(object):
     def __init__(self, filename):
-        self.file = open(filename, 'w')
+        self.file = open(filename,'w')
 
     def write(self, data):
         self.file.write(data)
@@ -499,16 +386,14 @@ class Writer(object):
     def flush(self):
         self.file.flush()
 
-
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        logging.error("usage: %s port" % (sys.argv[0]))
+        print "usage: %s port" % (sys.argv[0])
         sys.exit(-1)
 
     p = int(sys.argv[1])
-    logging.info("start at port %s" % (p))
-    # Make it compatible with IPv6 if Linux
-    if sys.platform == "linux":
-        app.run(host='::', port=p, debug=True, threaded=True)
-    else:
-        app.run(host='0.0.0.0', port=p, debug=True, threaded=True)
+    sys.stderr = Writer('stderr.log')
+    sys.stdout = Writer('stdout.log')
+    print "start at port %s" % (p)
+    app.run(host='0.0.0.0', port=p, debug=True, threaded=True)
+
