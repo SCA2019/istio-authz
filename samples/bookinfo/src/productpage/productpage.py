@@ -394,6 +394,6 @@ if __name__ == '__main__':
     p = int(sys.argv[1])
     sys.stderr = Writer('stderr.log')
     sys.stdout = Writer('stdout.log')
-    print "start at port %s" % (p)
+    #print "start at port %s" % (p)
     app.run(host='0.0.0.0', port=p, debug=True, threaded=True)
 
