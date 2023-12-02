@@ -305,6 +305,7 @@ def index():
 @app.route('/health')
 def health():
     return 'Product page is healthy'
+    
 @app.route('/login')
 def login():
     return auth0.authorize_redirect(redirect_uri=AUTH0_CALLBACK_URL, 
@@ -328,19 +329,19 @@ def logout():
     #   https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/logout
     return redirect(auth0.api_base_url + '/realms/bookshop/protocol/openid-connect/logout?' + urlencode(params))
 
-@app.route('/login', methods=['POST'])
-def login():
-    user = request.values.get('username')
-    response = app.make_response(redirect(request.referrer))
-    session['user'] = user
-    return response
+#@app.route('/login', methods=['POST'])
+#def login():
+#    user = request.values.get('username')
+#    response = app.make_response(redirect(request.referrer))
+#    session['user'] = user
+#    return response
 
 
-@app.route('/logout', methods=['GET'])
-def logout():
-    response = app.make_response(redirect(request.referrer))
-    session.pop('user', None)
-    return response
+#@app.route('/logout', methods=['GET'])
+#def logout():
+#    response = app.make_response(redirect(request.referrer))
+#    session.pop('user', None)
+#    return response
 
 # a helper function for asyncio.gather, does not return a value
 
