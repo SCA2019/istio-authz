@@ -33,6 +33,8 @@ from json2html import *
 import logging
 import os
 import asyncio
+from authlib.flask.client import OAuth
+from six.moves.urllib.parse import urlencode
 
 # These two lines enable debugging at httplib level (requests->urllib3->http.client)
 # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
@@ -199,6 +201,9 @@ def trace():
 def getForwardHeaders(request):
     headers = {}
 
+    if 'access_token' in session:
+        headers['Authorization'] = 'Bearer ' + session['access_token']
+            
     # x-b3-*** headers can be populated using the opentracing span
     span = get_current_span()
     carrier = {}
