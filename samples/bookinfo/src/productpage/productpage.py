@@ -57,6 +57,37 @@ app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
 Bootstrap(app)
 
+# AUTH0_CALLBACK_URL = "http://{YOUR-CLUSTER-PUBLIC-IP}/callback"
+AUTH0_CALLBACK_URL = "http://istio-ingressgateway-istio-system.apps.rosa.rosa-wm72j.46i9.p3.openshiftapps.com/callback"
+
+# AUTH0_CLIENT_ID = "{YOUR-APPLICATION-CLIENT-ID}"
+AUTH0_CLIENT_ID = "book-ui"
+
+# AUTH0_CLIENT_SECRET = "{YOUR-APPLICATION-CLIENT-SECRET}"
+AUTH0_CLIENT_SECRET = ""
+
+# AUTH0_DOMAIN = "{YOUR-AUTH0-DOMAIN}"
+AUTH0_DOMAIN = "keycloak-keycloak.apps.rosa.rosa-wm72j.46i9.p3.openshiftapps.com"
+AUTH0_BASE_URL = 'https://' + AUTH0_DOMAIN
+
+# AUTH0_AUDIENCE = "{YOUR-AUDIENCE}"
+AUTH0_AUDIENCE = "account"
+
+oauth = OAuth(app)
+auth0 = oauth.register(
+    'auth0',
+    client_id=AUTH0_CLIENT_ID,
+    client_secret=AUTH0_CLIENT_SECRET,
+    api_base_url=AUTH0_BASE_URL,
+    # https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/token
+    access_token_url=AUTH0_BASE_URL + '/realms/bookshop/protocol/openid-connect/token',
+    # https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/auth
+    authorize_url=AUTH0_BASE_URL + '/realms/bookshop/protocol/openid-connect/auth',
+    client_kwargs={
+        'scope': 'openid profile',
+    },
+)
+
 servicesDomain = "" if (os.environ.get("SERVICES_DOMAIN") is None) else "." + os.environ.get("SERVICES_DOMAIN")
 detailsHostname = "details" if (os.environ.get("DETAILS_HOSTNAME") is None) else os.environ.get("DETAILS_HOSTNAME")
 detailsPort = "9080" if (os.environ.get("DETAILS_SERVICE_PORT") is None) else os.environ.get("DETAILS_SERVICE_PORT")
@@ -269,7 +300,28 @@ def index():
 @app.route('/health')
 def health():
     return 'Product page is healthy'
+@app.route('/login')
+def login():
+    return auth0.authorize_redirect(redirect_uri=AUTH0_CALLBACK_URL, 
+                                    audience=AUTH0_AUDIENCE)
+@app.route('/callback')
+def callback():
+    response = auth0.authorize_access_token()          # 1
+    session['access_token'] = response['access_token'] # 2
+    userinfoResponse = auth0.get('userinfo')           # 3
+    userinfo = userinfoResponse.json()
+    session['user'] = userinfo['nickname']             # 4
+    return redirect('/productpage')
 
+@app.route('/logout')
+def logout():
+    session.clear()
+    # params = {'returnTo': url_for('front', _external=True),
+    #           'client_id': AUTH0_CLIENT_ID}
+    params = {'redirect_uri': url_for('front', _external=True)}
+    # return redirect(auth0.api_base_url + '/v2/logout?' + urlencode(params))
+    #   https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/logout
+    return redirect(auth0.api_base_url + '/realms/bookshop/protocol/openid-connect/logout?' + urlencode(params))
 
 @app.route('/login', methods=['POST'])
 def login():
