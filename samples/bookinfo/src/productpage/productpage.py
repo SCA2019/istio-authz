@@ -49,7 +49,7 @@ logging.basicConfig(filename='/tmp/microservice.log',filemode='w',level=logging.
 requests_log = logging.getLogger("requests.packages.urllib3")
 requests_log.setLevel(logging.DEBUG)
 requests_log.propagate = True
-app.logger.addHandler(logging.StreamHandler(sys.stdout))
+#app.logger.addHandler(logging.StreamHandler(sys.stdout))
 app.logger.setLevel(logging.DEBUG)
 
 # Set the secret key to some random bytes. Keep this really secret!
