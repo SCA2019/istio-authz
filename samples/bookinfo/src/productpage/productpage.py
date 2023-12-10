@@ -81,9 +81,9 @@ auth0 = oauth.register(
     client_secret=AUTH0_CLIENT_SECRET,
     api_base_url=AUTH0_BASE_URL,
     # https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/token
-    access_token_url=AUTH0_BASE_URL + '/realms/bookshop/protocol/openid-connect/token',
+    access_token_url=AUTH0_BASE_URL + '/auth/realms/bookshop/protocol/openid-connect/token',
     # https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/auth
-    authorize_url=AUTH0_BASE_URL + '/realms/bookshop/protocol/openid-connect/auth',
+    authorize_url=AUTH0_BASE_URL + '/auth/realms/bookshop/protocol/openid-connect/auth',
     client_kwargs={
         'scope': 'openid profile',
     },
