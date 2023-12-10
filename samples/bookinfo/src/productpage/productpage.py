@@ -81,9 +81,9 @@ auth0 = oauth.register(
     client_secret=AUTH0_CLIENT_SECRET,
     api_base_url=AUTH0_BASE_URL,
     # https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/token
-    access_token_url=AUTH0_BASE_URL + '/realms/bookshop/protocol/openid-connect/token',
+    access_token_url=AUTH0_BASE_URL + '/auth/realms/bookshop/protocol/openid-connect/token',
     # https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/auth
-    authorize_url=AUTH0_BASE_URL + '/realms/bookshop/protocol/openid-connect/auth',
+    authorize_url=AUTH0_BASE_URL + '/auth/realms/bookshop/protocol/openid-connect/auth',
     client_kwargs={
         'scope': 'openid profile',
     },
@@ -250,7 +250,7 @@ def callback():
     session['access_token'] = response['access_token'] # 2
     # https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/userinfo
     # userinfoResponse = auth0.get('userinfo',verify=False)           # 3
-    userinfoResponse = auth0.get('realms/bookshop/protocol/openid-connect/userinfo',verify=False)           # 3
+    userinfoResponse = auth0.get('auth/realms/bookshop/protocol/openid-connect/userinfo',verify=False)           # 3
     userinfo = userinfoResponse.json()
     # session['user'] = userinfo['nickname']             # 4
     session['user'] = userinfo['name']             # 4
@@ -265,7 +265,7 @@ def logout():
     params = {'redirect_uri': url_for('front', _external=True)}
     # return redirect(auth0.api_base_url + '/v2/logout?' + urlencode(params))
     #   https://172.42.42.30:8280/auth/realms/bookshop/protocol/openid-connect/logout
-    return redirect(auth0.api_base_url + '/realms/bookshop/protocol/openid-connect/logout?' + urlencode(params))
+    return redirect(auth0.api_base_url + '/auth/realms/bookshop/protocol/openid-connect/logout?' + urlencode(params))
 
 @app.route('/productpage')
 @trace()
